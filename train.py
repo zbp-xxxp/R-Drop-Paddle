@@ -1,18 +1,16 @@
-import logging
 import argparse
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import random
 import numpy as np
-
 import paddle
 from visualdl import LogWriter
 from tqdm import tqdm
 import paddle.nn.functional as F
 from models.modeling import VisionTransformer
 from utils.data_utils import get_loader
-
-
+from utils.scheduler import WarmupLinearSchedule, WarmupCosineSchedule
+import paddle.distributed as dist
+paddle.set_device('gpu')
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -42,39 +40,46 @@ def save_model(args, model):
 
 def setup(args):
     # Prepare model
-    # config = CONFIGS[args.model_type]
-
+    dist.init_parallel_env()
     num_classes = 10 if args.dataset == "cifar10" else 100
     if args.dataset == "imagenet":
         num_classes=1000
 
-    model = VisionTransformer()
+    model = VisionTransformer(
+                img_size=args.img_size, 
+                patch_size=16, 
+                in_chans=3, 
+                class_dim=100, 
+                embed_dim=768, 
+                depth=12,
+                num_heads=12, 
+                mlp_ratio=4, 
+                qkv_bias=False, 
+                qk_scale=None, 
+                drop_rate=0.1, 
+                attn_drop_rate=0.,
+                drop_path_rate=0.1, 
+                norm_layer='nn.LayerNorm', 
+                epsilon=1e-6)
 
-    model_PATH = "prtrain/vit_base_patch16_224.pdparams"
-    
+    model_PATH = args.pretrained_dir
+    model = paddle.DataParallel(model)
     model_state_dict = paddle.load(model_PATH)
     model.set_dict(model_state_dict)
     return args, model
 
 class kl_loss(paddle.nn.Layer):
-    def __init__(self):
+    def __init__(self, alpha):
        super(kl_loss, self).__init__()
        self.cross_entropy_loss = paddle.nn.CrossEntropyLoss()
+       self.alpha = alpha
 
     def forward(self, p, q, label):
-        p_loss = F.kl_div(F.log_softmax(p, axis=-1), F.softmax(q, axis=-1), reduction='none')
-        q_loss = F.kl_div(F.log_softmax(q, axis=-1), F.softmax(p, axis=-1), reduction='none')
-        # You can choose whether to use function "sum" and "mean" depending on your task
-        p_loss = p_loss.sum()
-        q_loss = q_loss.sum()
-
-        loss = (p_loss + q_loss) / 2
-
         ce_loss = 0.5 * (self.cross_entropy_loss(p, label) + self.cross_entropy_loss(q, label))
         kl_loss = self.compute_kl_loss(p, q)
 
         # carefully choose hyper-parameters
-        loss = ce_loss + 0.3 * kl_loss 
+        loss = ce_loss + self.alpha * kl_loss 
 
         return loss
 
@@ -110,7 +115,7 @@ def valid(args, model, writer, test_loader, global_step):
     for step, batch in enumerate(epoch_iterator):
         x, y = batch
         with paddle.no_grad():
-            logits = model(x)#[0]
+            logits = model(x)
 
             eval_loss = loss_fct(logits, y)
             eval_losses.update(eval_loss.item())
@@ -140,7 +145,7 @@ def valid(args, model, writer, test_loader, global_step):
 
 def train(args, model):
     """ Train the model """
-    writer = LogWriter(logdir="./log/scalar_test/train")
+    writer = LogWriter(logdir="/root/paddlejob/workspace/output/log/paddle")
     args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
 
     # Prepare dataset
@@ -162,7 +167,7 @@ def train(args, model):
     # Train!
     set_seed(args)  # Added here for reproducibility (even between python 2 and 3)
     losses = AverageMeter()
-    compute_kl_loss = kl_loss()
+    compute_kl_loss = kl_loss(alpha = args.alpha)
     global_step, best_acc = 0, 0
     while True:
         # model.train()
@@ -222,14 +227,14 @@ def main():
                                                  "ViT-L_32", "ViT-H_14"],
                         default="ViT-B_16",
                         help="Which variant to use.")
-    parser.add_argument("--pretrained_dir", type=str, default="data/data104692/ViT-B_16.npz",
+    parser.add_argument("--pretrained_dir", type=str, default="prtrain/vit_base_patch16_384.pdparams",
                         help="Where to search for pretrained ViT models.")
-    parser.add_argument("--output_dir", default="output", type=str,
+    parser.add_argument("--output_dir", default="/root/paddlejob/workspace/output/output", type=str,
                         help="The output directory where checkpoints will be written.")
 
-    parser.add_argument("--img_size", default=224, type=int,
+    parser.add_argument("--img_size", default=384, type=int,
                         help="Resolution size")
-    parser.add_argument("--train_batch_size", default=512, type=int,
+    parser.add_argument("--train_batch_size", default=352, type=int,
                         help="Total batch size for training.")
     parser.add_argument("--eval_batch_size", default=64, type=int,
                         help="Total batch size for eval.")
@@ -241,7 +246,7 @@ def main():
                         help="The initial learning rate for SGD.")
     parser.add_argument("--weight_decay", default=0., type=float,
                         help="Weight deay if we apply some.")
-    parser.add_argument("--num_steps", default=200000, type=int,
+    parser.add_argument("--num_steps", default=10000, type=int,
                         help="Total number of training epochs to perform.")
     parser.add_argument("--decay_type", choices=["cosine", "linear"], default="cosine",
                         help="How to decay the learning rate.")
@@ -249,11 +254,8 @@ def main():
                         help="Step of training to perform learning rate warmup for.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float,
                         help="Max gradient norm.")
-    parser.add_argument("--alpha", default=0.6, type=float,
+    parser.add_argument("--alpha", default=0.3, type=float,
                         help="alpha for kl loss")
-
-    parser.add_argument("--local_rank", type=int, default=-1,
-                        help="local_rank for distributed training on gpus")
     parser.add_argument('--seed', type=int, default=42,
                         help="random seed for initialization")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=16,
