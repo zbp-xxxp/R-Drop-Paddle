@@ -155,9 +155,9 @@ def train(args, model):
     # Prepare optimizer and scheduler
     t_total = args.num_steps
     if args.decay_type == "cosine":
-        scheduler = paddle.optimizer.lr.CosineAnnealingDecay(learning_rate=args.learning_rate, T_max=t_total, verbose=True)
+        scheduler = WarmupCosineSchedule(learning_rate=args.learning_rate, warmup_steps=args.warmup_steps, t_total=args.num_steps)
     else:
-        scheduler = paddle.optimizer.lr.LinearWarmup(learning_rate=args.learning_rate, T_max=t_total, verbose=True)
+        scheduler = WarmupLinearSchedule(learning_rate=args.learning_rate, warmup_steps=args.warmup_steps, t_total=args.num_steps)
     clip = paddle.nn.ClipGradByGlobalNorm(clip_norm=args.max_grad_norm)
     optimizer = paddle.optimizer.Momentum(learning_rate=scheduler,
                                           parameters=model.parameters(),
@@ -234,7 +234,7 @@ def main():
 
     parser.add_argument("--img_size", default=384, type=int,
                         help="Resolution size")
-    parser.add_argument("--train_batch_size", default=352, type=int,
+    parser.add_argument("--train_batch_size", default=512, type=int,
                         help="Total batch size for training.")
     parser.add_argument("--eval_batch_size", default=64, type=int,
                         help="Total batch size for eval.")
