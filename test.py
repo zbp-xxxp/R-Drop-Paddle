@@ -143,7 +143,7 @@ def main():
     parser.add_argument("--output_dir", default="output", type=str,
                         help="The output directory where checkpoints will be written.")
 
-    parser.add_argument("--img_size", default=224, type=int,
+    parser.add_argument("--img_size", default=384, type=int,
                         help="Resolution size")
     parser.add_argument("--train_batch_size", default=512, type=int,
                         help="Total batch size for training.")
@@ -165,7 +165,7 @@ def main():
                         help="Step of training to perform learning rate warmup for.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float,
                         help="Max gradient norm.")
-    parser.add_argument("--alpha", default=0.6, type=float,
+    parser.add_argument("--alpha", default=0.3, type=float,
                         help="alpha for kl loss")
 
     parser.add_argument("--local_rank", type=int, default=-1,
