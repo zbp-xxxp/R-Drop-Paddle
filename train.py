@@ -242,7 +242,7 @@ def main():
                         help="Run prediction on validation set every so many steps."
                              "Will always run one evaluation at the end of training.")
 
-    parser.add_argument("--learning_rate", default=5e-3, type=float,
+    parser.add_argument("--learning_rate", default=1e-2, type=float,
                         help="The initial learning rate for SGD.")
     parser.add_argument("--weight_decay", default=0., type=float,
                         help="Weight deay if we apply some.")
