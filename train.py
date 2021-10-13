@@ -58,7 +58,7 @@ def setup(args):
                 qk_scale=None, 
                 drop_rate=0.1, 
                 attn_drop_rate=0.,
-                drop_path_rate=0.1, 
+                drop_path_rate=0., 
                 norm_layer='nn.LayerNorm', 
                 epsilon=1e-6)
 
