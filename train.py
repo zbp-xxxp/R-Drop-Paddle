@@ -234,7 +234,7 @@ def main():
 
     parser.add_argument("--img_size", default=384, type=int,
                         help="Resolution size")
-    parser.add_argument("--train_batch_size", default=512, type=int,
+    parser.add_argument("--train_batch_size", default=128, type=int,
                         help="Total batch size for training.")
     parser.add_argument("--eval_batch_size", default=64, type=int,
                         help="Total batch size for eval.")
